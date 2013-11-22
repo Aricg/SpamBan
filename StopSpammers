@@ -1,0 +1,139 @@
+#!/bin/bash
+LOGDIR="/var/log/spamban/"
+LOG="spamlog"
+
+#ad check to find if we should run su - zimbra
+#su - zimbra -c "which postsuper"
+
+check_if_root () {
+        [[ ! $UID = 0 ]] && echo "This script must be run as root"
+}
+
+#pretty logs
+log() {
+        if [ ! -d "$LOGDIR" ]; then
+                  mkdir -p "$LOGDIR" > /dev/null 2>&1
+        fi
+
+        if [ ! -f "$LOGDIR""$LOG" ]; then
+                touch "$LOGDIR""$LOG"
+                        log "Creating Log File"
+        fi
+
+        echo "$(date "+%Y/%m/%d %H:%M:%S"): $@" | tee -a "$LOGDIR""$LOG"
+}
+                          
+
+#Removes any deferred messages from the postfix queue if the message has more that $fields recipients. 
+remove_deferred () {
+fields=20
+
+if [[ $test == true ]]; then log "this is only a test";
+
+        
+cat mailqueue | tail -n +2 | grep -v '^ *(' \
+        | awk -v f="$fields" 'BEGIN { RS=""; }{ if (NF > f ) print $1 }' \
+        | tr -d '*!' | xargs; echo  "/opt/zimbra/postfix/sbin/postsuper -d -"
+
+else
+#su - zimbra -c "mailq" 
+cat mailqueue | tail -n +2 | grep -v '^ *(' \
+        | awk -v f="$fields" 'BEGIN { RS=""; }{ if (NF > f ) print $1 }' \
+        | tr -d '*!' \
+        | /opt/zimbra/postfix/sbin/postsuper -d -
+fi
+}
+
+#Detect users sending spam and sent email to the administrators.
+#Sorted and Numbered list of users with emails in the deferred queue with more than ten recipients per email
+detect_spammers () {
+
+#only check if the deferred queue is larger than $thold
+#only count emails that have greater than $recv recipients
+thold=500
+recv=10
+
+#numq=$(su - zimbra -c "mailq" | wc -l)
+numq=$(cat mailqueue | wc -l)
+
+if (( $numq > $thold )); 
+then
+        log echo "number of messages deferred: $numq"
+
+        if [[ $test == true ]]; then 
+                log "this is only a test";
+                log "spammers detected on host: "; hostname; log "|Deferred messages | email |"; \
+                cat mailqueue | tail -n +2 | grep -v '^ *(' \
+                | awk -v r="$recv" 'BEGIN { RS=""; }{ if (NF > r ) print $7 }' | tr -d '*!' | sort | uniq -c | tee -a "$LOGDIR""$LOG"
+       else
+                sendmail "$@" \
+                < <(echo -en "spammers detected on host: "; hostname; echo "|Deferred messages | email |"; \
+                #su - zimbra -c "mailq" | tail -n +2 | grep -v '^ *(' \
+                cat mailqueue | tail -n +2 | grep -v '^ *(' \
+                | awk -v r="$recv" 'BEGIN { RS=""; }{ if (NF > r ) print $7 }' \
+                | tr -d '*!' | sort | uniq -c | tee -a "$LOGDIR""$LOG")
+       fi
+else
+        log echo "Fewer than $thold emails in the deferred queue, exiting"; exit 0
+fi
+
+}
+
+#Lock accounts that have more than 100 diffrent deffered messages with at least ten recipients in each
+lock_spammers () {
+#awk '{if ($1 > 100 ) print $2}' < <(cat mailqueue | tail -n +2 | grep -v '^ *(' | awk 'BEGIN { RS=""; }{ if (NF > 10 ) print $7 }' | tr -d '*!' | sort | uniq ); 
+numd=5
+recv=10
+
+for x in \
+       $(awk -v n="$numd" '{if ($1 > n ) print $2}' < \
+       <(cat mailqueue | tail -n +2 | grep -v '^ *('\
+       | awk -v r="$recv" 'BEGIN { RS=""; }{ if (NF > r ) print $7 }' \
+       | tr -d '*!' | sort | uniq -c) )
+do 
+        if [[ $test == true ]]; 
+                then 
+                log "this is only a test"
+                log "locking $x's account"
+                log "su - zimbra -c "zmprov ma $x zimbraAccountStatus locked""
+
+        else
+                log "locking $x's account"
+                su - zimbra -c "zmprov ma $x zimbraAccountStatus locked" | tee log
+        fi
+done
+
+}
+
+usage() {
+        cat << EOF
+usage: $0 [OPTIONS]
+        -t only test command don't actually run it (call this first)
+        -h Show this message
+        -d removed deferred messages
+        -f user@example.com detect spammers and email output
+        -x lock spammers account (zimbra only)
+        -l choose log dir
+
+EOF
+}
+
+check_if_root
+
+if [[ -z "$@" ]]; then usage
+fi
+
+while getopts ":tldfxh" OPTION
+do
+
+case $OPTION in
+        t ) test=true ;;
+        l ) LOGDIR="$OPTARG" ;;
+        d ) remove_deferred $@;;
+        f ) shift; detect_spammers $@;;
+        x ) lock_spammers $@;;
+        h ) usage; exit;;
+        \? ) echo "Unknown option: -$OPTARG" >&2; exit 1;;
+esac
+done
+
