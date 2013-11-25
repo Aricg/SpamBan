@@ -31,13 +31,13 @@ fields=20
 if [[ $test == true ]]; then log "this is only a test";
 
         
-cat mailqueue | tail -n +2 | grep -v '^ *(' \
+su - zimbra -c "mailq"  | tail -n +2 | grep -v '^ *(' \
         | awk -v f="$fields" 'BEGIN { RS=""; }{ if (NF > f ) print $1 }' \
         | tr -d '*!' | xargs; echo  "/opt/zimbra/postfix/sbin/postsuper -d -"
 
 else
 #su - zimbra -c "mailq" 
-cat mailqueue | tail -n +2 | grep -v '^ *(' \
+su - zimbra -c "mailq" | tail -n +2 | grep -v '^ *(' \
         | awk -v f="$fields" 'BEGIN { RS=""; }{ if (NF > f ) print $1 }' \
         | tr -d '*!' \
         | /opt/zimbra/postfix/sbin/postsuper -d -
@@ -54,7 +54,7 @@ thold=500
 recv=10
 
 #numq=$(su - zimbra -c "mailq" | wc -l)
-numq=$(cat mailqueue | wc -l)
+numq=$(su - zimbra -c "mailq"  | wc -l)
 
 if (( $numq > $thold )); 
 then
@@ -63,13 +63,13 @@ then
         if [[ $test == true ]]; then 
                 log "this is only a test";
                 log "spammers detected on host: "; hostname; log "|Deferred messages | email |"; \
-                cat mailqueue | tail -n +2 | grep -v '^ *(' \
+                su - zimbra -c "mailq"  | tail -n +2 | grep -v '^ *(' \
                 | awk -v r="$recv" 'BEGIN { RS=""; }{ if (NF > r ) print $7 }' | tr -d '*!' | sort | uniq -c | tee -a "$LOGDIR""$LOG"
        else
                 sendmail "$@" \
                 < <(echo -en "spammers detected on host: "; hostname; echo "|Deferred messages | email |"; \
                 #su - zimbra -c "mailq" | tail -n +2 | grep -v '^ *(' \
-                cat mailqueue | tail -n +2 | grep -v '^ *(' \
+                su - zimbra -c "mailq"  | tail -n +2 | grep -v '^ *(' \
                 | awk -v r="$recv" 'BEGIN { RS=""; }{ if (NF > r ) print $7 }' \
                 | tr -d '*!' | sort | uniq -c | tee -a "$LOGDIR""$LOG")
        fi
@@ -87,7 +87,7 @@ recv=10
 
 for x in \
        $(awk -v n="$numd" '{if ($1 > n ) print $2}' < \
-       <(cat mailqueue | tail -n +2 | grep -v '^ *('\
+       <(su - zimbra -c "mailq"  | tail -n +2 | grep -v '^ *('\
        | awk -v r="$recv" 'BEGIN { RS=""; }{ if (NF > r ) print $7 }' \
        | tr -d '*!' | sort | uniq -c) )
 do 
