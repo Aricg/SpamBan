@@ -108,7 +108,7 @@ done
 usage() {
         cat << EOF
 usage: $0 [OPTIONS]
-        -t only test command don't actually run it (call this first)
+        -t only test command dont actually run it (call this first)
         -h Show this message
         -d removed deferred messages
         -f user@example.com detect spammers and email output
